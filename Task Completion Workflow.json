@@ -1,0 +1,583 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "600235eb-663e-4daa-be67-b5aab7fe3bd6",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const today = new Date();\ntoday.setHours(0,0,0,0);\n\nconst dueDateStr = $json[\"Due Date\"];\nconst status = $json[\"Status\"];\n\n// Skip if no date or already completed\nif (!dueDateStr || status === \"Completed\") {\n  return { json: { ...$json, SendEmail: false } };\n}\n\nconst [day, month, year] = dueDateStr.split('/');\nconst dueDate = new Date(`${year}-${month}-${day}`);\ndueDate.setHours(0,0,0,0);\n\nif (dueDate.getTime() === today.getTime()) {\n\n  $json.Status = \"Completed\";\n  $json.SendEmail = true;\n\n} else {\n\n  $json.SendEmail = false;\n\n}\n\nreturn { json: $json };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        0
+      ],
+      "id": "aec2e24b-3d9d-40d2-9ef7-1ceb80b141df",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50",
+          "mode": "list",
+          "cachedResultName": "Email Automation",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        0
+      ],
+      "id": "5b9dd832-7bfc-4967-a86c-80050bacfd21",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2pA3VvHKFY6J21pW",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.Email }}",
+        "subject": "Reminder:  Due Today",
+        "emailType": "text",
+        "message": "=Hi {{ $json.Name }},\n\nThis is an automated reminder that the following task is scheduled for today.\n\nTask: {{ $json.Task }}\nDue Date: {{ $json[\"Due Date\"] }}\nPriority: {{ $json.Priority }}\n\nPlease ensure the task is completed before the deadline.\n\nIf the task has already been completed, you can ignore this message.\n\nBest regards,\nAutomation System",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        -112
+      ],
+      "id": "d40aa594-a9f7-454e-9596-79454d6e1295",
+      "name": "Send a message",
+      "webhookId": "fdd151c4-dadd-45b2-ba06-c66f724ef2dd",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "8HuXrsC6N8ASgmia",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const today = new Date();\ntoday.setHours(0,0,0,0);\n\nconst dueDateStr = $json[\"Due Date\"];\nconst currentStatus = $json[\"Status\"];\n\n// STOP if task already completed\nif (currentStatus === \"Completed\") {\n  $json.SendReminder = false;\n  return { json: $json };\n}\n\nlet sendReminder = false;\nlet reminderType = null;\nlet newStatus = currentStatus || \"Pending\";\n\nif (dueDateStr) {\n\n  const [day, month, year] = dueDateStr.split('/');\n  const dueDate = new Date(`${year}-${month}-${day}`);\n  dueDate.setHours(0,0,0,0);\n\n  const diffTime = dueDate.getTime() - today.getTime();\n  const daysRemaining = Math.ceil(diffTime / (1000 * 60 * 60 * 24));\n\n  const lastReminder = $json[\"LastReminderSent\"];\n\n  // Prevent duplicate reminder today\n  if (lastReminder) {\n\n    const [d, m, y] = lastReminder.split('/');\n    const lastDate = new Date(`${y}-${m}-${d}`);\n    lastDate.setHours(0,0,0,0);\n\n    if (lastDate.getTime() !== today.getTime()) {\n\n      if (daysRemaining === 3 && newStatus === \"Pending\") {\n        reminderType = \"Reminder - 3 days left\";\n        newStatus = \"Reminder Sent (3 days)\";\n        sendReminder = true;\n      }\n\n      else if (daysRemaining === 1 && newStatus !== \"Final Reminder Sent\") {\n        reminderType = \"Reminder - 1 day left\";\n        newStatus = \"Reminder Sent (1 day)\";\n        sendReminder = true;\n      }\n\n      else if (daysRemaining === 0) {\n        reminderType = \"Final Reminder - Due Today\";\n        newStatus = \"Final Reminder Sent\";\n        sendReminder = true;\n      }\n    }\n\n  } else {\n\n    if (daysRemaining === 3 || daysRemaining === 1 || daysRemaining === 0) {\n      sendReminder = true;\n      reminderType = \"Task Reminder\";\n    }\n\n  }\n\n  if (sendReminder) {\n\n    const dd = String(today.getDate()).padStart(2,'0');\n    const mm = String(today.getMonth()+1).padStart(2,'0');\n    const yyyy = today.getFullYear();\n\n    $json.ReminderType = reminderType;\n    $json.DaysRemaining = daysRemaining;\n    $json.Status = newStatus;\n    $json.LastReminderSent = `${dd}/${mm}/${yyyy}`;\n\n  }\n\n}\n\n$json.SendReminder = sendReminder;\n\nreturn { json: $json };"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        144
+      ],
+      "id": "fd532a0e-948e-423e-b966-8629f13606af",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50",
+          "mode": "list",
+          "cachedResultName": "Email Automation",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {
+            "Email": "={{ $json.Email }}"
+          },
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Task",
+              "displayName": "Task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Due Date",
+              "displayName": "Due Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "LastReminderSent",
+              "displayName": "LastReminderSent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "SendReminder",
+              "displayName": "SendReminder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "ReminderType",
+              "displayName": "ReminderType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "DaysRemaining",
+              "displayName": "DaysRemaining",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "UpdatedStatus",
+              "displayName": "UpdatedStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        976,
+        144
+      ],
+      "id": "662bb7d9-c4b4-4814-ad00-d21509c54694",
+      "name": "Update row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "7k24hMp7DceAASWj",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50",
+          "mode": "list",
+          "cachedResultName": "Email Automation",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "Email"
+          ],
+          "schema": [
+            {
+              "id": "Name",
+              "displayName": "Name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Email",
+              "displayName": "Email",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Task",
+              "displayName": "Task",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Due Date",
+              "displayName": "Due Date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Priority",
+              "displayName": "Priority",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "LastReminderSent",
+              "displayName": "LastReminderSent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Notes",
+              "displayName": "Notes",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "SendReminder",
+              "displayName": "SendReminder",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "ReminderType",
+              "displayName": "ReminderType",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "DaysRemaining",
+              "displayName": "DaysRemaining",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "UpdatedStatus",
+              "displayName": "UpdatedStatus",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "0f211de0-c049-40e0-a0cd-73b965f33d71",
+      "name": "Update row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2pA3VvHKFY6J21pW",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50",
+          "mode": "list",
+          "cachedResultName": "Email Automation",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1FC6wNkr1KINPycJb4QI_NnUsg9pB46YXzHJ6O1xol50/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        160
+      ],
+      "id": "82d7ef79-08fc-46c3-b2d5-e3f42ec6e83b",
+      "name": "Get row(s) in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "2pA3VvHKFY6J21pW",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Update row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        []
+      ]
+    },
+    "Update row in sheet1": {
+      "main": [
+        []
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "3fab1947-db67-425a-9a59-31664b0bf23e",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "1d8ab036ab1462d7c7c39b6f2f906b37f939cea8e2cfdfd8d163a74aeb3c8dce"
+  },
+  "id": "BCKeUzgvOo07uvmj",
+  "tags": [
+    {
+      "updatedAt": "2026-03-09T10:00:49.896Z",
+      "createdAt": "2026-03-09T10:00:49.896Z",
+      "id": "0JQ5vKAZG6XFC1Xe",
+      "name": "production"
+    }
+  ]
+}
